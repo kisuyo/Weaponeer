@@ -11,9 +11,12 @@
     "db:migrate": "drizzle-kit migrate"
   },
   "dependencies": {
+    "@ton/core": "^0.60.1",
+    "@tonconnect/ui-react": "^2.1.0",
     "drizzle-orm": "^0.44.2",
     "drizzle-zod": "^0.8.2",
     "framer-motion": "^12.16.0",
+    "lucide-react": "^0.513.0",
     "next": "15.3.3",
     "postgres": "^3.4.7",
     "react": "^19.0.0",

@@ -13,6 +13,8 @@ import { createServerAction } from "zsa";
 import { z } from "zod";
 import { eq, and, sql } from "drizzle-orm";
 
+type Player = typeof players.$inferSelect;
+
 // Schema for creating a test player
 const createTestPlayerSchema = z.object({
   telegramId: z.string(),
@@ -136,6 +138,7 @@ export const $getChestContents = createServerAction()
               colorHex: rarities.colorHex,
             },
             dropWeight: chestLootTable.dropWeight,
+            attributes: itemTypes.attributes,
           })
           .from(chestLootTable)
           .innerJoin(itemTypes, eq(chestLootTable.itemTypeId, itemTypes.id))
@@ -177,15 +180,24 @@ export async function $openChest({
   playerId: string;
   chestName: string;
 }) {
+  if (!playerId || !chestName) {
+    console.error("Missing required parameters:", { playerId, chestName });
+    return [null, { message: "Missing required parameters" }];
+  }
+
   try {
+    console.log("Opening chest:", { playerId, chestName });
+
     // Get chest info
     const chest = await db.query.chestTypes.findFirst({
       where: eq(chestTypes.name, chestName),
     });
 
     if (!chest) {
+      console.log("Chest not found:", chestName);
       return [null, { message: "Chest not found" }];
     }
+    console.log("Found chest:", chest);
 
     // Get or create test player
     let player = await db.query.players.findFirst({
@@ -193,15 +205,22 @@ export async function $openChest({
     });
 
     if (!player) {
-      const [newPlayer] = await db
-        .insert(players)
-        .values({
-          telegramId: playerId,
-          username: "Test Player",
-        })
-        .returning();
-      player = newPlayer;
+      console.log("Creating new player:", playerId);
+      try {
+        const [newPlayer] = await db
+          .insert(players)
+          .values({
+            telegramId: playerId,
+            username: "Test Player",
+          })
+          .returning();
+        player = newPlayer;
+      } catch (error) {
+        console.error("Error creating player:", error);
+        return [null, { message: "Failed to create player" }];
+      }
     }
+    console.log("Using player:", player);
 
     // Get available loot for this chest
     const availableLoot = await db.query.chestLootTable.findMany({
@@ -215,12 +234,20 @@ export async function $openChest({
       },
     });
 
+    console.log("Available loot count:", availableLoot.length);
+
     if (!availableLoot.length) {
+      console.log("No items available in chest:", chestName);
       return [null, { message: "No items available in this chest" }];
     }
 
     // Select random item based on weights
     const selectedItem = selectRandomItemByWeight(availableLoot);
+    if (!selectedItem) {
+      console.error("Failed to select random item");
+      return [null, { message: "Failed to select random item" }];
+    }
+    console.log("Selected item:", selectedItem);
 
     // Format the item for the response
     const formattedItem = {
@@ -234,11 +261,16 @@ export async function $openChest({
     };
 
     // Give the item to the player
-    await db.insert(playerItems).values({
-      playerId: player.id,
-      itemTypeId: selectedItem.itemType.id,
-      isEquipped: false,
-    });
+    try {
+      await db.insert(playerItems).values({
+        playerId: player.id,
+        itemTypeId: selectedItem.itemType.id,
+        isEquipped: false,
+      });
+    } catch (error) {
+      console.error("Error giving item to player:", error);
+      return [null, { message: "Failed to give item to player" }];
+    }
 
     return [
       {
@@ -251,6 +283,9 @@ export async function $openChest({
     ];
   } catch (error) {
     console.error("Error opening chest:", error);
+    if (error instanceof Error) {
+      console.error("Error details:", error.message, error.stack);
+    }
     return [null, { message: "Failed to open chest" }];
   }
 }
@@ -280,3 +315,25 @@ export const $getAllChests = createServerAction().handler(async () => {
     return { success: false, error: "Failed to get chests" };
   }
 });
+
+// Get user by address
+export async function $getUserByAddress({
+  address,
+}: {
+  address: string;
+}): Promise<
+  [
+    { success: boolean; data: Player | null; error?: string } | null,
+    { message: string } | null
+  ]
+> {
+  try {
+    const user = await db.query.players.findFirst({
+      where: eq(players.telegramId, address),
+    });
+    return [{ success: true, data: user || null }, null];
+  } catch (error) {
+    console.error("Error fetching user:", error);
+    return [null, { message: "Failed to fetch user data" }];
+  }
+}

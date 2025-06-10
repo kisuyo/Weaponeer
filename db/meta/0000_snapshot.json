@@ -1,5 +1,5 @@
 {
-  "id": "82498f74-8ca0-45e6-b012-e73adda56cde",
+  "id": "0ec52caa-513c-469b-a2fd-30e78908bcbd",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -87,90 +87,6 @@
           ]
         }
       },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.chest_openings": {
-      "name": "chest_openings",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "player_id": {
-          "name": "player_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "chest_type_id": {
-          "name": "chest_type_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "cost_paid": {
-          "name": "cost_paid",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "currency_type": {
-          "name": "currency_type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "items_received": {
-          "name": "items_received",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "opened_at": {
-          "name": "opened_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "chest_openings_player_id_players_id_fk": {
-          "name": "chest_openings_player_id_players_id_fk",
-          "tableFrom": "chest_openings",
-          "tableTo": "players",
-          "columnsFrom": [
-            "player_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "chest_openings_chest_type_id_chest_types_id_fk": {
-          "name": "chest_openings_chest_type_id_chest_types_id_fk",
-          "tableFrom": "chest_openings",
-          "tableTo": "chest_types",
-          "columnsFrom": [
-            "chest_type_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
@@ -287,7 +203,8 @@
           "name": "attributes",
           "type": "jsonb",
           "primaryKey": false,
-          "notNull": false
+          "notNull": false,
+          "default": "'[]'::jsonb"
         },
         "is_active": {
           "name": "is_active",
@@ -436,19 +353,40 @@
           "notNull": false,
           "default": 0
         },
-        "offline_coins": {
-          "name": "offline_coins",
-          "type": "numeric(20, 2)",
+        "total_coins_per_tap": {
+          "name": "total_coins_per_tap",
+          "type": "numeric(10, 2)",
           "primaryKey": false,
           "notNull": false,
-          "default": "'0'"
+          "default": "'0.1'"
         },
-        "offline_limit": {
-          "name": "offline_limit",
+        "total_offline_storage": {
+          "name": "total_offline_storage",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "default": 100
+        },
+        "total_luck": {
+          "name": "total_luck",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0
+        },
+        "total_crit_chance": {
+          "name": "total_crit_chance",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0
+        },
+        "has_auto_tap": {
+          "name": "has_auto_tap",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "default": false
         },
         "last_active": {
           "name": "last_active",

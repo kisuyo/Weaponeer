@@ -1,3 +1,32 @@
+// config/gameConfig.ts - All attribute definitions in one place
+export const ATTRIBUTE_CONFIG = {
+  // Tap bonuses
+  coins_per_tap_1: { value: 0.1, displayName: "+0.1 Coins per Tap" },
+  coins_per_tap_2: { value: 0.5, displayName: "+0.5 Coins per Tap" },
+  coins_per_tap_3: { value: 1.0, displayName: "+1.0 Coins per Tap" },
+
+  // Offline bonuses
+  offline_storage_100: { value: 100, displayName: "+100 Offline Storage" },
+  offline_storage_500: { value: 500, displayName: "+500 Offline Storage" },
+  offline_storage_1000: { value: 1000, displayName: "+1000 Offline Storage" },
+
+  // Luck bonuses
+  luck_10: { value: 10, displayName: "+10% Chest Luck" },
+  luck_25: { value: 25, displayName: "+25% Chest Luck" },
+  luck_50: { value: 50, displayName: "+50% Chest Luck" },
+
+  // Crit bonuses
+  crit_chance_5: { value: 5, displayName: "5% Crit Chance" },
+  crit_chance_10: { value: 10, displayName: "10% Crit Chance" },
+
+  // Special abilities
+  auto_tap: { value: 1, displayName: "Auto Tap Enabled" },
+  double_offline: { value: 2, displayName: "2x Offline Earnings" },
+} as const;
+
+export type AttributeKey = keyof typeof ATTRIBUTE_CONFIG;
+
+// Simplified schema - much cleaner!
 import {
   pgTable,
   uuid,
@@ -9,21 +38,18 @@ import {
   decimal,
   primaryKey,
 } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
-import { eq, and, inArray } from "drizzle-orm";
-import { z } from "zod";
-import { createInsertSchema, createSelectSchema } from "drizzle-zod";
+import { relations, and, eq } from "drizzle-orm";
 
-// Define item rarities and their drop weights
+// Rarities
 export const rarities = pgTable("rarities", {
   id: uuid("id").defaultRandom().primaryKey(),
-  name: text("name").notNull().unique(), // 'common', 'rare', 'epic', 'legendary', 'mythic'
-  dropWeight: integer("drop_weight").notNull(), // 70, 20, 8, 1.8, 0.2 (percentages)
-  colorHex: text("color_hex").notNull(), // '#gray', '#blue', '#purple', '#orange', '#gold'
+  name: text("name").notNull().unique(),
+  dropWeight: integer("drop_weight").notNull(),
+  colorHex: text("color_hex").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-// Item templates - these are the "blueprint" items you create
+// Items - much simpler with attributes as array
 export const itemTypes = pgTable("item_types", {
   id: uuid("id").defaultRandom().primaryKey(),
   name: text("name").notNull(),
@@ -32,27 +58,34 @@ export const itemTypes = pgTable("item_types", {
     .references(() => rarities.id)
     .notNull(),
   slot: text("slot").notNull(), // 'weapon', 'helmet', 'shield', 'cape'
-  attributes: jsonb("attributes"), // { "coins_per_tap": 0.5, "offline_storage": 100, "auto_tap": true }
-  isActive: boolean("is_active").default(true), // Can disable items without deleting
+  attributes: jsonb("attributes").$type<AttributeKey[]>().default([]), // ["coins_per_tap_1", "luck_10"]
+  isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-// Players
+// Players - store calculated totals for performance
 export const players = pgTable("players", {
   id: uuid("id").defaultRandom().primaryKey(),
   telegramId: text("telegram_id").notNull().unique(),
   username: text("username"),
   coins: decimal("coins", { precision: 20, scale: 2 }).default("0"),
   totalTaps: integer("total_taps").default(0),
-  offlineCoins: decimal("offline_coins", { precision: 20, scale: 2 }).default(
-    "0"
-  ),
-  offlineLimit: integer("offline_limit").default(100), // Can be upgraded
+
+  // Cached totals from equipped items (recalculated when equipping/unequipping)
+  totalCoinsPerTap: decimal("total_coins_per_tap", {
+    precision: 10,
+    scale: 2,
+  }).default("0.1"),
+  totalOfflineStorage: integer("total_offline_storage").default(100),
+  totalLuck: integer("total_luck").default(0),
+  totalCritChance: integer("total_crit_chance").default(0),
+  hasAutoTap: boolean("has_auto_tap").default(false),
+
   lastActive: timestamp("last_active").defaultNow(),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-// Player's actual item instances - when they get a sword, it goes here
+// Player items
 export const playerItems = pgTable("player_items", {
   id: uuid("id").defaultRandom().primaryKey(),
   playerId: uuid("player_id")
@@ -65,19 +98,19 @@ export const playerItems = pgTable("player_items", {
   acquiredAt: timestamp("acquired_at").defaultNow(),
 });
 
-// Define chest types and their properties
+// Chest types
 export const chestTypes = pgTable("chest_types", {
   id: uuid("id").defaultRandom().primaryKey(),
-  name: text("name").notNull().unique(), // 'basic', 'premium', 'crypto', 'starter'
-  displayName: text("display_name").notNull(), // 'Basic Chest', 'Premium Chest'
+  name: text("name").notNull().unique(),
+  displayName: text("display_name").notNull(),
   cost: integer("cost").notNull(),
-  currencyType: text("currency_type").notNull(), // 'coins', 'crypto'
-  guaranteedRarityMin: text("guaranteed_rarity_min"), // 'rare' means at least rare guaranteed
+  currencyType: text("currency_type").notNull(),
+  guaranteedRarityMin: text("guaranteed_rarity_min"),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-// Junction table - which items can drop from which chests
+// Chest loot table
 export const chestLootTable = pgTable(
   "chest_loot_table",
   {
@@ -88,35 +121,27 @@ export const chestLootTable = pgTable(
     itemTypeId: uuid("item_type_id")
       .references(() => itemTypes.id)
       .notNull(),
-    dropWeight: integer("drop_weight").default(1), // Custom weight for this chest-item combo
+    dropWeight: integer("drop_weight").default(1),
     isActive: boolean("is_active").default(true),
     createdAt: timestamp("created_at").defaultNow(),
   },
   (table) => ({
-    // Prevent duplicate entries
     chestItemUnique: primaryKey(table.chestTypeId, table.itemTypeId),
   })
 );
 
-// Track chest openings for analytics
-export const chestOpenings = pgTable("chest_openings", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  playerId: uuid("player_id")
-    .references(() => players.id)
-    .notNull(),
-  chestTypeId: uuid("chest_type_id")
-    .references(() => chestTypes.id)
-    .notNull(),
-  costPaid: integer("cost_paid").notNull(),
-  currencyType: text("currency_type").notNull(),
-  itemsReceived: jsonb("items_received"), // Array of item_type_ids received
-  openedAt: timestamp("opened_at").defaultNow(),
-});
+// Relations (much simpler now)
+export const itemTypesRelations = relations(itemTypes, ({ one, many }) => ({
+  rarity: one(rarities, {
+    fields: [itemTypes.rarityId],
+    references: [rarities.id],
+  }),
+  playerItems: many(playerItems),
+  chestLoot: many(chestLootTable),
+}));
 
-// Relations for easier querying
 export const chestTypesRelations = relations(chestTypes, ({ many }) => ({
-  lootTable: many(chestLootTable),
-  openings: many(chestOpenings),
+  loot: many(chestLootTable),
 }));
 
 export const chestLootTableRelations = relations(chestLootTable, ({ one }) => ({
@@ -130,17 +155,12 @@ export const chestLootTableRelations = relations(chestLootTable, ({ one }) => ({
   }),
 }));
 
-export const playersRelations = relations(players, ({ many }) => ({
-  items: many(playerItems),
-  chestOpenings: many(chestOpenings),
+export const raritiesRelations = relations(rarities, ({ many }) => ({
+  items: many(itemTypes),
 }));
 
-export const itemTypesRelations = relations(itemTypes, ({ one, many }) => ({
-  rarity: one(rarities, {
-    fields: [itemTypes.rarityId],
-    references: [rarities.id],
-  }),
-  playerItems: many(playerItems),
+export const playersRelations = relations(players, ({ many }) => ({
+  items: many(playerItems),
 }));
 
 export const playerItemsRelations = relations(playerItems, ({ one }) => ({
@@ -154,223 +174,101 @@ export const playerItemsRelations = relations(playerItems, ({ one }) => ({
   }),
 }));
 
-export const raritiesRelations = relations(rarities, ({ many }) => ({
-  itemTypes: many(itemTypes),
-}));
-
-// Zod schemas for each table
-export const raritySchema = z.object({
-  id: z.string().uuid(),
-  name: z.string(),
-  dropWeight: z.number().int(),
-  colorHex: z.string(),
-  createdAt: z.date(),
-});
-
-export const itemTypeSchema = z.object({
-  id: z.string().uuid(),
-  name: z.string(),
-  imageUrl: z.string().url(),
-  rarityId: z.string().uuid(),
-  slot: z.string(),
-  attributes: z.record(z.any()).optional(),
-  isActive: z.boolean(),
-  createdAt: z.date(),
-});
-
-export const playerSchema = z.object({
-  id: z.string().uuid(),
-  telegramId: z.string(),
-  username: z.string().optional(),
-  coins: z.number(),
-  totalTaps: z.number().int(),
-  offlineCoins: z.number(),
-  offlineLimit: z.number().int(),
-  lastActive: z.date(),
-  createdAt: z.date(),
-});
-
-export const playerItemSchema = z.object({
-  id: z.string().uuid(),
-  playerId: z.string().uuid(),
-  itemTypeId: z.string().uuid(),
-  isEquipped: z.boolean(),
-  acquiredAt: z.date(),
-});
-
-export const chestTypeSchema = z.object({
-  id: z.string().uuid(),
-  name: z.string(),
-  displayName: z.string(),
-  cost: z.number().int(),
-  currencyType: z.string(),
-  guaranteedRarityMin: z.string().optional(),
-  isActive: z.boolean(),
-  createdAt: z.date(),
-});
-
-export const chestLootTableSchema = z.object({
-  id: z.string().uuid(),
-  chestTypeId: z.string().uuid(),
-  itemTypeId: z.string().uuid(),
-  dropWeight: z.number().int(),
-  isActive: z.boolean(),
-  createdAt: z.date(),
-});
-
-export const chestOpeningSchema = z.object({
-  id: z.string().uuid(),
-  playerId: z.string().uuid(),
-  chestTypeId: z.string().uuid(),
-  costPaid: z.number().int(),
-  currencyType: z.string(),
-  itemsReceived: z.array(z.string().uuid()).optional(),
-  openedAt: z.date(),
-});
-
-// Create insert and select schemas using drizzle-zod
-export const insertRaritySchema = createInsertSchema(rarities);
-export const selectRaritySchema = createSelectSchema(rarities);
-
-export const insertItemTypeSchema = createInsertSchema(itemTypes);
-export const selectItemTypeSchema = createSelectSchema(itemTypes);
-
-export const insertPlayerSchema = createInsertSchema(players);
-export const selectPlayerSchema = createSelectSchema(players);
-
-export const insertPlayerItemSchema = createInsertSchema(playerItems);
-export const selectPlayerItemSchema = createSelectSchema(playerItems);
-
-export const insertChestTypeSchema = createInsertSchema(chestTypes);
-export const selectChestTypeSchema = createSelectSchema(chestTypes);
-
-export const insertChestLootTableSchema = createInsertSchema(chestLootTable);
-export const selectChestLootTableSchema = createSelectSchema(chestLootTable);
-
-export const insertChestOpeningSchema = createInsertSchema(chestOpenings);
-export const selectChestOpeningSchema = createSelectSchema(chestOpenings);
-
-// Example usage functions:
-
-// 1. Setup chest types
-export async function setupChestTypes(db: any) {
-  return await db.insert(chestTypes).values([
-    {
-      name: "basic",
-      displayName: "Basic Chest",
-      cost: 100,
-      currencyType: "coins",
-    },
-    {
-      name: "premium",
-      displayName: "Premium Chest",
-      cost: 1000,
-      currencyType: "coins",
-      guaranteedRarityMin: "rare",
-    },
-    {
-      name: "crypto",
-      displayName: "Crypto Chest",
-      cost: 10,
-      currencyType: "crypto",
-      guaranteedRarityMin: "epic",
-    },
-  ]);
+// Helper functions
+export function getAttributeValue(attributeKey: AttributeKey): number {
+  return ATTRIBUTE_CONFIG[attributeKey].value;
 }
 
-// 2. Add sword to specific chests
-export async function addSwordToChests(
-  db: any,
-  itemTypeId: string,
-  chestNames: string[],
-  customWeight?: number
-) {
-  const chests = await db.query.chestTypes.findMany({
-    where: inArray(chestTypes.name, chestNames),
-  });
-
-  const lootEntries = chests.map((chest: { id: string }) => ({
-    chestTypeId: chest.id,
-    itemTypeId: itemTypeId,
-    dropWeight: customWeight || 1,
-  }));
-
-  return await db.insert(chestLootTable).values(lootEntries);
+export function getAttributeDisplay(attributeKey: AttributeKey): string {
+  return ATTRIBUTE_CONFIG[attributeKey].displayName;
 }
 
-// 3. Get available loot for a chest
-export async function getChestLoot(db: any, chestName: string) {
-  return await db.query.chestLootTable.findMany({
-    where: eq(
-      chestLootTable.chestTypeId,
-      db
-        .select({ id: chestTypes.id })
-        .from(chestTypes)
-        .where(eq(chestTypes.name, chestName))
+// Calculate player totals from equipped items
+export async function recalculatePlayerStats(db: any, playerId: string) {
+  const equippedItems = await db.query.playerItems.findMany({
+    where: and(
+      eq(playerItems.playerId, playerId),
+      eq(playerItems.isEquipped, true)
     ),
     with: {
-      itemType: {
-        with: {
-          rarity: true,
-        },
-      },
+      itemType: true,
     },
   });
-}
 
-// 4. Open a chest (simplified)
-export async function openChest(db: any, playerId: string, chestName: string) {
-  // Get chest info
-  const chest = await db.query.chestTypes.findFirst({
-    where: eq(chestTypes.name, chestName),
-  });
+  let totalCoinsPerTap = 0.1; // Base tap value
+  let totalOfflineStorage = 100; // Base offline storage
+  let totalLuck = 0;
+  let totalCritChance = 0;
+  let hasAutoTap = false;
 
-  // Get available loot for this chest
-  const availableLoot = await getChestLoot(db, chestName);
+  // Sum up all attributes from equipped items
+  for (const playerItem of equippedItems) {
+    const attributes = playerItem.itemType.attributes as AttributeKey[];
 
-  // Weighted random selection logic here...
-  const selectedItem = selectRandomItemByWeight(availableLoot);
+    for (const attr of attributes) {
+      const value = getAttributeValue(attr);
 
-  // Give player the item
-  await givePlayerItem(db, playerId, selectedItem.itemType.id);
-
-  // Record the opening
-  await db.insert(chestOpenings).values({
-    playerId,
-    chestTypeId: chest.id,
-    costPaid: chest.cost,
-    currencyType: chest.currencyType,
-    itemsReceived: [selectedItem.itemType.id],
-  });
-}
-
-function selectRandomItemByWeight(lootTable: any[]) {
-  // Implement weighted random selection
-  const totalWeight = lootTable.reduce((sum, item) => sum + item.dropWeight, 0);
-  let random = Math.random() * totalWeight;
-
-  for (const item of lootTable) {
-    random -= item.dropWeight;
-    if (random <= 0) return item;
+      if (attr.startsWith("coins_per_tap_")) {
+        totalCoinsPerTap += value;
+      } else if (attr.startsWith("offline_storage_")) {
+        totalOfflineStorage += value;
+      } else if (attr.startsWith("luck_")) {
+        totalLuck += value;
+      } else if (attr.startsWith("crit_chance_")) {
+        totalCritChance += value;
+      } else if (attr === "auto_tap") {
+        hasAutoTap = true;
+      }
+    }
   }
 
-  return lootTable[0]; // fallback
+  // Update player stats
+  await db
+    .update(players)
+    .set({
+      totalCoinsPerTap: totalCoinsPerTap.toString(),
+      totalOfflineStorage,
+      totalLuck,
+      totalCritChance,
+      hasAutoTap,
+    })
+    .where(eq(players.id, playerId));
 }
 
-// Helper function to give player an item
-export async function givePlayerItem(
+// Easy item creation
+export async function createItem(
   db: any,
-  playerId: string,
-  itemTypeId: string
+  itemData: {
+    name: string;
+    imageUrl: string;
+    rarityName: string;
+    slot: string;
+    attributes: AttributeKey[];
+  }
 ) {
-  const playerItem = await db
-    .insert(playerItems)
+  const rarity = await db.query.rarities.findFirst({
+    where: eq(rarities.name, itemData.rarityName),
+  });
+
+  return await db
+    .insert(itemTypes)
     .values({
-      playerId,
-      itemTypeId,
-      isEquipped: false, // They need to manually equip it
+      name: itemData.name,
+      imageUrl: itemData.imageUrl,
+      rarityId: rarity.id,
+      slot: itemData.slot,
+      attributes: itemData.attributes,
     })
     .returning();
-
-  return playerItem[0];
 }
+
+// Example usage:
+/*
+await createItem(db, {
+  name: "Mythic Scythe",
+  imageUrl: "scythe_mythic.png",
+  rarityName: "mythic",
+  slot: "weapon",
+  attributes: ["coins_per_tap_3", "offline_storage_1000", "auto_tap"]
+});
+*/

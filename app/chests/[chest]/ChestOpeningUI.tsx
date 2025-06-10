@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useAnimate } from "framer-motion";
-import { $openChest } from "@/app/actions/actions";
+import { $openChest, $getChestContents } from "@/app/actions/actions";
+import { ATTRIBUTE_CONFIG } from "@/db/schema";
 
 type ReceivedItem = {
   id: string;
@@ -12,6 +13,23 @@ type ReceivedItem = {
     name: string;
     colorHex: string;
   };
+  attributes?: string[];
+};
+
+type GetChestContentsResult = {
+  success: boolean;
+  data?: {
+    chest: {
+      id: string;
+      name: string;
+      displayName: string;
+      cost: number;
+      currencyType: string;
+      guaranteedRarityMin: string | null;
+    };
+    items: ReceivedItem[];
+  };
+  error?: string;
 };
 
 type OpenChestSuccess = {
@@ -42,24 +60,28 @@ const sampleItems = [
     name: "Common Sword",
     imageUrl: "https://example.com/sword1.png",
     rarity: { name: "common", colorHex: "#808080" },
+    attributes: [],
   },
   {
     id: "uncommonSword1",
     name: "Uncommon Sword",
     imageUrl: "https://example.com/sword2.png",
     rarity: { name: "uncommon", colorHex: "#00FF00" },
+    attributes: ["offline_storage_500"],
   },
   {
     id: "rareSword1",
     name: "Rare Sword",
     imageUrl: "https://example.com/sword3.png",
     rarity: { name: "rare", colorHex: "#0000FF" },
+    attributes: ["offline_storage_1000", "extra_taps_3"],
   },
   {
     id: "epicSword1",
     name: "Epic Sword",
     imageUrl: "https://example.com/sword4.png",
     rarity: { name: "epic", colorHex: "#800080" },
+    attributes: ["offline_storage_1000", "extra_taps_5", "luck_50"],
   },
 ];
 
@@ -67,20 +89,38 @@ const sampleItems = [
 function createItemPool(items: ReceivedItem[]): ReceivedItem[] {
   const pool: ReceivedItem[] = [];
 
-  // Add items multiple times based on their drop rates
-  items.forEach((item) => {
-    const count =
-      item.rarity.name === "common"
+  // Group items by rarity
+  const itemsByRarity = items.reduce((acc, item) => {
+    if (!acc[item.rarity.name]) {
+      acc[item.rarity.name] = [];
+    }
+    acc[item.rarity.name].push(item);
+    return acc;
+  }, {} as Record<string, ReceivedItem[]>);
+
+  // Add items with proper probability distribution
+  Object.entries(itemsByRarity).forEach(([rarity, items]) => {
+    const totalWeight =
+      rarity === "common"
         ? 70
-        : item.rarity.name === "uncommon"
+        : rarity === "uncommon"
         ? 20
-        : item.rarity.name === "rare"
+        : rarity === "rare"
         ? 8
         : 2;
 
-    for (let i = 0; i < count; i++) {
-      pool.push({ ...item, id: `${item.rarity.name}Sword${i + 1}` });
-    }
+    // Distribute weight evenly among items of the same rarity
+    const weightPerItem = totalWeight / items.length;
+
+    // Add each item to the pool with its share of the weight
+    items.forEach((item, index) => {
+      const count = Math.ceil(weightPerItem);
+      for (let i = 0; i < count; i++) {
+        // Create a unique ID by combining rarity, item index, and instance number
+        const uniqueId = `${item.rarity.name}_${index + 1}_${i + 1}`;
+        pool.push({ ...item, id: uniqueId });
+      }
+    });
   });
 
   // Shuffle the array
@@ -101,6 +141,31 @@ export default function ChestOpeningUI({
   const [receivedItem, setReceivedItem] = useState<ReceivedItem | null>(null);
   const [spinning, setSpinning] = useState(false);
   const [currentItemId, setCurrentItemId] = useState<string | null>(null);
+  const [possibleItems, setPossibleItems] = useState<ReceivedItem[]>([]);
+
+  // Load possible items when component mounts
+  useEffect(() => {
+    const loadPossibleItems = async () => {
+      try {
+        const [result, err] = (await $getChestContents({
+          chestName: actualChestName,
+        })) as [GetChestContentsResult | null, { message: string } | null];
+
+        if (err) {
+          console.error("Error getting chest contents:", err);
+          return;
+        }
+
+        if (result?.success && result.data?.items) {
+          setPossibleItems(result.data.items);
+        }
+      } catch (error) {
+        console.error("Error loading possible items:", error);
+      }
+    };
+
+    loadPossibleItems();
+  }, [actualChestName]);
 
   useEffect(() => {
     if (spinning) {
@@ -128,8 +193,8 @@ export default function ChestOpeningUI({
 
       if (result?.success && result.data?.item) {
         console.log("Chest opened successfully, creating item pool...");
-        // Create item pool
-        const pool = createItemPool(sampleItems);
+        // Create item pool with actual items from the chest
+        const pool = createItemPool(possibleItems);
         console.log("Item pool created with", pool.length, "items");
         setItemPool(pool);
       } else if (result && !result.success) {
@@ -160,32 +225,11 @@ export default function ChestOpeningUI({
       element: item,
     }));
 
-    // Function to check which item is under the center line
-    const checkCenterItem = () => {
-      const centerX = window.innerWidth / 2;
-      const itemPoolRect = itemPoolElement.getBoundingClientRect();
-      const itemPoolLeft = itemPoolRect.left;
-
-      for (const { id, element } of itemPositions) {
-        const rect = element.getBoundingClientRect();
-        const itemCenter = rect.left + rect.width / 2;
-
-        // If item center is within 20px of the center line
-        if (Math.abs(itemCenter - centerX) < 20) {
-          if (currentItemId !== id) {
-            console.log("Current item under center:", id);
-            setCurrentItemId(id);
-          }
-          break;
-        }
-      }
-    };
-
     // Start animation
     await animate(
       "#item-pool",
       {
-        x: [0, -4000],
+        x: [0, -4100],
       },
       {
         duration: 4,
@@ -193,29 +237,41 @@ export default function ChestOpeningUI({
         onComplete: () => {
           // Get the current item under center directly
           const centerX = window.innerWidth / 2;
+          console.log("Center X:", centerX);
           const itemPoolElement = document.getElementById("item-pool");
           if (!itemPoolElement) return;
 
           const items = itemPoolElement.getElementsByClassName("item-card");
           let finalItemId = null;
+          let minDistance = Infinity;
 
+          // Find the item closest to the center
           for (const item of items) {
             const rect = item.getBoundingClientRect();
             const itemCenter = rect.left + rect.width / 2;
+            const distance = Math.abs(itemCenter - centerX);
 
-            if (Math.abs(itemCenter - centerX) < 20) {
+            if (distance < minDistance) {
+              minDistance = distance;
               finalItemId = item.getAttribute("data-id");
-              break;
             }
           }
 
+          console.log("Final item ID:", finalItemId);
+          console.log("Min distance:", minDistance);
+
           if (finalItemId) {
-            const receivedItem = itemPool.find(
-              (item) => item.id === finalItemId
+            // Extract the base item ID (without the instance number)
+            const baseId = finalItemId.split("_").slice(0, 2).join("_");
+            const receivedItem = itemPool.find((item) =>
+              item.id.startsWith(baseId)
             );
+
             if (receivedItem) {
               console.log("Setting received item:", receivedItem);
               setReceivedItem(receivedItem);
+            } else {
+              console.error("Could not find item with ID:", finalItemId);
             }
           }
           setSpinning(false);
@@ -230,6 +286,59 @@ export default function ChestOpeningUI({
       className="z-10 max-w-5xl w-full items-center justify-between font-mono text-sm"
     >
       <h1 className="text-4xl font-bold mb-8">Open {chestName} Chest</h1>
+
+      {/* Show possible items */}
+      <div className="mb-8">
+        <h2 className="text-2xl font-bold mb-4">Possible Items:</h2>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          {possibleItems.map((item) => (
+            <div
+              key={item.id}
+              className="p-4 rounded-lg border border-white/10"
+              style={{ backgroundColor: `${item.rarity.colorHex}20` }}
+            >
+              <div className="flex flex-col items-center">
+                <div
+                  className="w-16 h-16 rounded mb-2"
+                  style={{ backgroundColor: item.rarity.colorHex }}
+                />
+                <div className="font-bold text-center">{item.name}</div>
+                <div
+                  className="text-sm"
+                  style={{ color: item.rarity.colorHex }}
+                >
+                  {item.rarity.name}
+                </div>
+                {item.attributes && item.attributes.length > 0 ? (
+                  <div className="mt-2 space-y-1">
+                    {item.attributes.map((attrKey: string, index: number) => {
+                      // Use ATTRIBUTE_CONFIG to get display and value
+                      const attrConfig =
+                        ATTRIBUTE_CONFIG[
+                          attrKey as keyof typeof ATTRIBUTE_CONFIG
+                        ];
+                      if (!attrConfig) return null;
+                      return (
+                        <div
+                          key={index}
+                          className="text-xs"
+                          style={{ color: item.rarity.colorHex }}
+                        >
+                          {attrConfig.displayName}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-xs text-gray-500 mt-2">
+                    No attributes
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
 
       <div className="mb-8">
         <button
@@ -278,10 +387,35 @@ export default function ChestOpeningUI({
               className="w-16 h-16 rounded"
               style={{ backgroundColor: receivedItem.rarity.colorHex }}
             />
-            <div>
+            <div className="flex-1">
               <div className="font-bold">{receivedItem.name}</div>
               <div className="text-sm opacity-80">
                 {receivedItem.rarity.name}
+              </div>
+              <div className="mt-2">
+                {receivedItem.attributes &&
+                receivedItem.attributes.length > 0 ? (
+                  receivedItem.attributes.map(
+                    (attrKey: string, index: number) => {
+                      const attrConfig =
+                        ATTRIBUTE_CONFIG[
+                          attrKey as keyof typeof ATTRIBUTE_CONFIG
+                        ];
+                      if (!attrConfig) return null;
+                      return (
+                        <div
+                          key={index}
+                          className="text-sm"
+                          style={{ color: receivedItem.rarity.colorHex }}
+                        >
+                          {attrConfig.displayName}
+                        </div>
+                      );
+                    }
+                  )
+                ) : (
+                  <div className="text-sm text-gray-500">No attributes</div>
+                )}
               </div>
             </div>
           </div>
