@@ -1,17 +1,13 @@
 "use server";
 
 import { db } from "@/db";
-import {
-  chestTypes,
-  chestLootTable,
-  itemTypes,
-  rarities,
-  playerItems,
-  players,
-} from "@/db/schema";
+import { players, chestOpeningLogs } from "@/db/schema";
 import { createServerAction } from "zsa";
 import { z } from "zod";
-import { eq, and, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
+import { ChestTypes, getChestById } from "@/config/chests";
+import { SwordTypes, getSwordById } from "@/config/swords";
+import { logChestOpening } from "@/db/schema";
 
 type Player = typeof players.$inferSelect;
 
@@ -114,11 +110,10 @@ export const $getChestContents = createServerAction()
       input: z.infer<typeof getChestContentsSchema>;
     }): Promise<GetChestContentsResult> => {
       try {
-        // Get chest info
-        const [chest] = await db
-          .select()
-          .from(chestTypes)
-          .where(eq(chestTypes.name, input.chestName));
+        // Get chest info from config
+        const chest = ChestTypes.find(
+          (chest) => chest.name === input.chestName
+        );
 
         if (!chest) {
           return {
@@ -127,28 +122,19 @@ export const $getChestContents = createServerAction()
           };
         }
 
-        // Get all items that can drop from this chest
-        const items = await db
-          .select({
-            id: itemTypes.id,
-            name: itemTypes.name,
-            imageUrl: itemTypes.imageUrl,
-            rarity: {
-              name: rarities.name,
-              colorHex: rarities.colorHex,
-            },
-            dropWeight: chestLootTable.dropWeight,
-            attributes: itemTypes.attributes,
-          })
-          .from(chestLootTable)
-          .innerJoin(itemTypes, eq(chestLootTable.itemTypeId, itemTypes.id))
-          .innerJoin(rarities, eq(itemTypes.rarityId, rarities.id))
-          .where(eq(chestLootTable.chestTypeId, chest.id));
-
-        // Ensure dropWeight is never null by defaulting to 1
-        const itemsWithDefaultWeight = items.map((item) => ({
-          ...item,
-          dropWeight: item.dropWeight ?? 1,
+        // Get all swords that can drop from this chest based on drop weights
+        const items = SwordTypes.filter((sword) => {
+          const rarityWeight = chest.dropWeights[sword.rarity];
+          return rarityWeight && rarityWeight > 0;
+        }).map((sword) => ({
+          id: sword.id,
+          name: sword.name,
+          imageUrl: sword.imageUrl,
+          rarity: {
+            name: sword.rarity,
+            colorHex: getRarityColorHex(sword.rarity),
+          },
+          dropWeight: chest.dropWeights[sword.rarity] || 0,
         }));
 
         return {
@@ -160,9 +146,9 @@ export const $getChestContents = createServerAction()
               displayName: chest.displayName,
               cost: chest.cost,
               currencyType: chest.currencyType,
-              guaranteedRarityMin: chest.guaranteedRarityMin,
+              guaranteedRarityMin: chest.guaranteedRarityMin || null,
             },
-            items: itemsWithDefaultWeight,
+            items,
           },
         };
       } catch (error) {
@@ -188,10 +174,8 @@ export async function $openChest({
   try {
     console.log("Opening chest:", { playerId, chestName });
 
-    // Get chest info
-    const chest = await db.query.chestTypes.findFirst({
-      where: eq(chestTypes.name, chestName),
-    });
+    // Get chest info from config
+    const chest = ChestTypes.find((chest) => chest.name === chestName);
 
     if (!chest) {
       console.log("Chest not found:", chestName);
@@ -222,55 +206,51 @@ export async function $openChest({
     }
     console.log("Using player:", player);
 
-    // Get available loot for this chest
-    const availableLoot = await db.query.chestLootTable.findMany({
-      where: eq(chestLootTable.chestTypeId, chest.id),
-      with: {
-        itemType: {
-          with: {
-            rarity: true,
-          },
-        },
-      },
+    // Get available swords based on chest drop weights
+    const availableSwords = SwordTypes.filter((sword) => {
+      const rarityWeight = chest.dropWeights[sword.rarity];
+      return rarityWeight && rarityWeight > 0;
     });
 
-    console.log("Available loot count:", availableLoot.length);
+    console.log("Available swords count:", availableSwords.length);
 
-    if (!availableLoot.length) {
+    if (!availableSwords.length) {
       console.log("No items available in chest:", chestName);
       return [null, { message: "No items available in this chest" }];
     }
 
-    // Select random item based on weights
-    const selectedItem = selectRandomItemByWeight(availableLoot);
-    if (!selectedItem) {
-      console.error("Failed to select random item");
+    // Select random sword based on weights
+    const selectedSword = selectRandomSwordByWeight(
+      availableSwords,
+      chest.dropWeights
+    );
+    if (!selectedSword) {
+      console.error("Failed to select random sword");
       return [null, { message: "Failed to select random item" }];
     }
-    console.log("Selected item:", selectedItem);
+    console.log("Selected sword:", selectedSword);
 
-    // Format the item for the response
+    // Format the sword for the response
     const formattedItem = {
-      id: selectedItem.itemType.id,
-      name: selectedItem.itemType.name,
-      imageUrl: selectedItem.itemType.imageUrl,
+      id: selectedSword.id,
+      name: selectedSword.name,
+      imageUrl: selectedSword.imageUrl,
       rarity: {
-        name: selectedItem.itemType.rarity.name,
-        colorHex: selectedItem.itemType.rarity.colorHex,
+        name: selectedSword.rarity,
+        colorHex: getRarityColorHex(selectedSword.rarity),
       },
     };
 
-    // Give the item to the player
-    try {
-      await db.insert(playerItems).values({
-        playerId: player.id,
-        itemTypeId: selectedItem.itemType.id,
-        isEquipped: false,
-      });
-    } catch (error) {
-      console.error("Error giving item to player:", error);
-      return [null, { message: "Failed to give item to player" }];
-    }
+    // Log the chest opening
+    await logChestOpening(
+      db,
+      player.id,
+      chest.id,
+      selectedSword.id,
+      selectedSword.rarity,
+      chest.cost,
+      chest.currencyType
+    );
 
     return [
       {
@@ -290,26 +270,43 @@ export async function $openChest({
   }
 }
 
-function selectRandomItemByWeight(lootTable: any[]) {
+function selectRandomSwordByWeight(
+  swords: any[],
+  dropWeights: Record<string, number>
+) {
   // Calculate total weight
-  const totalWeight = lootTable.reduce((sum, item) => sum + item.dropWeight, 0);
+  const totalWeight = swords.reduce(
+    (sum, sword) => sum + (dropWeights[sword.rarity] || 0),
+    0
+  );
   let random = Math.random() * totalWeight;
 
-  // Select item based on weight
-  for (const item of lootTable) {
-    random -= item.dropWeight;
-    if (random <= 0) return item;
+  // Select sword based on weight
+  for (const sword of swords) {
+    const weight = dropWeights[sword.rarity] || 0;
+    random -= weight;
+    if (random <= 0) return sword;
   }
 
-  return lootTable[0]; // fallback
+  return swords[0]; // fallback
+}
+
+function getRarityColorHex(rarity: string): string {
+  const rarityColors: Record<string, string> = {
+    common: "#808080", // Gray
+    uncommon: "#00FF00", // Green
+    rare: "#0000FF", // Blue
+    epic: "#800080", // Purple
+    legendary: "#FFD700", // Gold
+    mythic: "#FF0000", // Red
+  };
+  return rarityColors[rarity] || "#808080";
 }
 
 // Get all chest types
 export const $getAllChests = createServerAction().handler(async () => {
   try {
-    const chests = await db.select().from(chestTypes).orderBy(chestTypes.cost);
-
-    return { success: true, data: chests };
+    return { success: true, data: ChestTypes };
   } catch (error) {
     console.error("Error getting chests:", error);
     return { success: false, error: "Failed to get chests" };

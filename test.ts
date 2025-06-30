@@ -1,14 +1,40 @@
 import { db } from "@/db";
-import { rarities, itemTypes, chestTypes, chestLootTable } from "@/db/schema";
+import {
+  rarities,
+  itemTypes,
+  chestTypes,
+  chestLootTable,
+  playerItems,
+} from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { ATTRIBUTE_CONFIG, AttributeKey } from "@/db/schema";
 
-// 1. Wipe all relevant tables
-async function wipeAll() {
-  await db.delete(chestLootTable);
-  await db.delete(itemTypes);
-  await db.delete(chestTypes);
-  await db.delete(rarities);
+// Comprehensive cleanup function
+async function cleanupDatabase() {
+  console.log("Starting database cleanup...");
+
+  try {
+    // Delete in order to respect foreign key constraints
+    console.log("Deleting player items...");
+    await db.delete(playerItems);
+
+    console.log("Deleting chest loot table...");
+    await db.delete(chestLootTable);
+
+    console.log("Deleting item types...");
+    await db.delete(itemTypes);
+
+    console.log("Deleting chest types...");
+    await db.delete(chestTypes);
+
+    console.log("Deleting rarities...");
+    await db.delete(rarities);
+
+    console.log("Database cleanup completed successfully!");
+  } catch (error) {
+    console.error("Error during cleanup:", error);
+    throw error;
+  }
 }
 
 // 2. Add rarities
@@ -129,7 +155,7 @@ async function addSwordsToChests(swords, chests) {
 // MAIN
 async function main() {
   try {
-    await wipeAll();
+    await cleanupDatabase();
     const raritiesList = await addRarities();
     const swords = await addSwords(raritiesList);
     const chests = await addChests();

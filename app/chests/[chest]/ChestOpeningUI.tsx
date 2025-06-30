@@ -3,7 +3,9 @@
 import { useEffect, useState } from "react";
 import { useAnimate } from "framer-motion";
 import { $openChest, $getChestContents } from "@/app/actions/actions";
-import { ATTRIBUTE_CONFIG } from "@/db/schema";
+import { ATTRIBUTE_CONFIG } from "@/config/attributes";
+import { SwordTypes } from "@/config/swords";
+import { ChestTypes } from "@/config/chests";
 
 type ReceivedItem = {
   id: string;
@@ -86,7 +88,10 @@ const sampleItems = [
 ];
 
 // Create an array of items based on their drop rates
-function createItemPool(items: ReceivedItem[]): ReceivedItem[] {
+function createItemPool(
+  items: ReceivedItem[],
+  chestDropWeights: Record<string, number>
+): ReceivedItem[] {
   const pool: ReceivedItem[] = [];
 
   // Group items by rarity
@@ -98,29 +103,24 @@ function createItemPool(items: ReceivedItem[]): ReceivedItem[] {
     return acc;
   }, {} as Record<string, ReceivedItem[]>);
 
-  // Add items with proper probability distribution
+  // Add items with proper probability distribution based on chest drop weights
   Object.entries(itemsByRarity).forEach(([rarity, items]) => {
-    const totalWeight =
-      rarity === "common"
-        ? 70
-        : rarity === "uncommon"
-        ? 20
-        : rarity === "rare"
-        ? 8
-        : 2;
+    const totalWeight = chestDropWeights[rarity] || 0;
 
-    // Distribute weight evenly among items of the same rarity
-    const weightPerItem = totalWeight / items.length;
+    if (totalWeight > 0) {
+      // Distribute weight evenly among items of the same rarity
+      const weightPerItem = totalWeight / items.length;
 
-    // Add each item to the pool with its share of the weight
-    items.forEach((item, index) => {
-      const count = Math.ceil(weightPerItem);
-      for (let i = 0; i < count; i++) {
-        // Create a unique ID by combining rarity, item index, and instance number
-        const uniqueId = `${item.rarity.name}_${index + 1}_${i + 1}`;
-        pool.push({ ...item, id: uniqueId });
-      }
-    });
+      // Add each item to the pool with its share of the weight
+      items.forEach((item, index) => {
+        const count = Math.ceil(weightPerItem);
+        for (let i = 0; i < count; i++) {
+          // Create a unique ID by combining rarity, item index, and instance number
+          const uniqueId = `${item.rarity.name}_${index + 1}_${i + 1}`;
+          pool.push({ ...item, id: uniqueId });
+        }
+      });
+    }
   });
 
   // Shuffle the array
@@ -142,6 +142,7 @@ export default function ChestOpeningUI({
   const [spinning, setSpinning] = useState(false);
   const [currentItemId, setCurrentItemId] = useState<string | null>(null);
   const [possibleItems, setPossibleItems] = useState<ReceivedItem[]>([]);
+  const [chestData, setChestData] = useState<any>(null);
 
   // Load possible items when component mounts
   useEffect(() => {
@@ -156,7 +157,8 @@ export default function ChestOpeningUI({
           return;
         }
 
-        if (result?.success && result.data?.items) {
+        if (result?.success && result.data) {
+          setChestData(result.data.chest);
           setPossibleItems(result.data.items);
         }
       } catch (error) {
@@ -193,8 +195,12 @@ export default function ChestOpeningUI({
 
       if (result?.success && result.data?.item) {
         console.log("Chest opened successfully, creating item pool...");
+        // Get chest drop weights from config
+        const chest = ChestTypes.find((c) => c.name === actualChestName);
+        const dropWeights = chest?.dropWeights || {};
+
         // Create item pool with actual items from the chest
-        const pool = createItemPool(possibleItems);
+        const pool = createItemPool(possibleItems, dropWeights);
         console.log("Item pool created with", pool.length, "items");
         setItemPool(pool);
       } else if (result && !result.success) {

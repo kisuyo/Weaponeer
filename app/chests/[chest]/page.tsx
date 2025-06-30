@@ -1,6 +1,4 @@
-import { db } from "@/db";
-import { chestTypes } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { ChestTypes } from "@/config/chests";
 import { notFound } from "next/navigation";
 import ChestOpeningUI from "./ChestOpeningUI";
 
@@ -15,10 +13,8 @@ export default async function ChestPage({
     notFound();
   }
 
-  // Check if chest exists on the server
-  const chestData = await db.query.chestTypes.findFirst({
-    where: eq(chestTypes.name, chestName),
-  });
+  // Check if chest exists using config file
+  const chestData = ChestTypes.find((chest) => chest.id === chestName);
 
   if (!chestData) {
     notFound();

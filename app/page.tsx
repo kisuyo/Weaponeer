@@ -48,11 +48,11 @@ export default function Home() {
               }}
               className="absolute top-[50%] left-[50%] translate-x-[-50%] translate-y-[-50%] w-[90%]"
             >
-              <img
+              {/* <img
                 src="/wooden_sword.png"
                 alt="sword"
                 className="w-full h-auto"
-              />
+              /> */}
             </motion.div>
           </motion.div>
         </div>
