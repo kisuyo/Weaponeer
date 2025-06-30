@@ -5,9 +5,9 @@ import ChestOpeningUI from "./ChestOpeningUI";
 export default async function ChestPage({
   params,
 }: {
-  params: { chest: string };
+  params: Promise<{ chest: string }>;
 }) {
-  const chestName = params?.chest;
+  const { chest: chestName } = await params;
 
   if (!chestName) {
     notFound();
