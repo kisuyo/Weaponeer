@@ -1,37 +1,42 @@
 {
-  "name": "weaponeer",
-  "version": "0.1.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev --turbopack",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
-  },
-  "dependencies": {
-    "@ton/core": "^0.60.1",
-    "@tonconnect/ui-react": "^2.1.0",
-    "drizzle-orm": "^0.44.2",
-    "drizzle-zod": "^0.8.2",
-    "framer-motion": "^12.16.0",
-    "lucide-react": "^0.513.0",
-    "next": "15.3.3",
-    "postgres": "^3.4.7",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "zod": "^3.25.56",
-    "zsa": "^0.6.0"
-  },
-  "devDependencies": {
-    "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "drizzle-kit": "^0.31.1",
-    "pg-connection-string": "^2.9.0",
-    "tailwindcss": "^4",
-    "typescript": "^5"
-  }
+	"name": "1focus",
+	"version": "1.0.0",
+	"main": "expo-router/entry",
+	"config": {
+		"device_ios": "iPhone 16",
+		"device_android": "pixel_9"
+	},
+	"scripts": {
+		"device:ios:off": "xcrun simctl shutdown \"$npm_package_config_device_ios\"",
+		"device:ios": "bun run device:ios:off; xcrun simctl delete \"$npm_package_config_device_ios\"; xcrun simctl create \"$npm_package_config_device_ios\" \"$npm_package_config_device_ios\"",
+		"device:android:off": "adb emu kill && while adb devices | grep -q emulator; do adb devices | grep emulator; sleep 1; done",
+		"device:android": "bun run device:android:off; avdmanager create avd -n \"$npm_package_config_device_android\" -d \"$npm_package_config_device_android\" -k 'system-images;android-36;google_apis;arm64-v8a' --force",
+		"ios": "expo run:ios --no-bundler --device \"$npm_package_config_device_ios\" ${BUILD_FLAGS:-} && bun run device:ios:off",
+		"android": "expo run:android --no-bundler --device \"$npm_package_config_device_android\" ${BUILD_FLAGS:-} && bun run device:android:off",
+		"start": "expo start --dev-client",
+		"restart": "bun run start --clear",
+		"build": "sh -c 'FLAGS=\"\" && { bun run ios && FLAGS+=\" --ios\"; bun run android && FLAGS+=\" --android\"; }; if [ -n \"$FLAGS\" ]; then bun run restart $FLAGS; else echo \"No platforms available.\"; fi'",
+		"clean:cache": "rm -rf .expo ios android && watchman watch-del-all",
+		"clean:device": "bun run device:ios && bun run device:android",
+		"build:clean": "sh -c 'export BUILD_FLAGS=\"--no-build-cache\" && bun run clean:cache && bun run clean:device && bun run build'"
+	},
+	"dependencies": {
+		"expo": "~53.0.16",
+		"expo-constants": "~17.1.6",
+		"expo-dev-client": "~5.2.4",
+		"expo-linking": "~7.1.6",
+		"expo-router": "~5.1.2",
+		"expo-status-bar": "~2.2.3",
+		"react": "19.0.0",
+		"react-native": "0.79.5",
+		"react-native-safe-area-context": "5.4.0",
+		"react-native-screens": "~4.11.1"
+	},
+	"devDependencies": {
+		"@babel/core": "^7.28.0",
+		"@types/react": "~19.0.14",
+		"tsx": "^4.20.3",
+		"typescript": "~5.8.3"
+	},
+	"private": true
 }

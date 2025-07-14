@@ -1,37 +1,97 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Local Development
 
-## Getting Started
+## Requirements
 
-First, run the development server:
+### Xcode + iOS Runtime ([App](https://github.com/XcodesOrg/XcodesApp?tab=readme-ov-file#readme))
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+![Xcode/Runtime Manager](.github/assets/xcode-runtime.png)
+
+```shell
+defaults write com.apple.dt.Xcode IDECustomDerivedDataLocation -string "DerivedData"
+defaults write com.apple.dt.Xcode IDEBuildLocationStyle -string "Custom"
+defaults write com.apple.dt.Xcode IDECustomBuildLocationType -string "RelativeToWorkspace"
+defaults write com.apple.dt.Xcode IDECustomBuildIntermediatesPath -string "Build/Intermediates.noindex"
+defaults write com.apple.dt.Xcode IDECustomBuildProductsPath -string "Build/Products"
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Android SDK ([Blog — in depth but dated](http://archive.today/2022.04.12-200701/http://johnborg.es/2019/04/android-setup-macos.html))
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```shell
+brew install android-commandlinetools zulu@17
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```shell
+cat << 'EOF' >> ~/.zprofile
 
-## Learn More
+# Android SDK
+export ANDROID_HOME="$HOMEBREW_PREFIX/share/android-commandlinetools"
+export PATH="$PATH:$ANDROID_HOME/emulator"
+export PATH="$PATH:$ANDROID_HOME/platform-tools"
 
-To learn more about Next.js, take a look at the following resources:
+# Java SDK
+export JAVA_HOME="/Library/Java/JavaVirtualMachines/zulu-17.jdk/Contents/Home"
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+EOF
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```shell
+yes | sdkmanager "emulator" "platform-tools" "build-tools;36.0.0" "platforms;android-36" "system-images;android-36;google_apis;arm64-v8a"
+```
 
-## Deploy on Vercel
+## Automatic Setup
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```shell
+bun run build:clean
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
-# Weaponeer
+## Manual Setup
+
+### Create Virtual Devices
+
+```shell
+bun run device:ios
+bun run device:android
+```
+
+### Create Development Build
+
+```shell
+bun run ios
+bun run android
+```
+
+### Start Live Server
+
+```shell
+bun run start --ios --android
+```
+
+## Troubleshooting
+
+### Check Virtual Devices
+
+#### iOS
+
+```shell
+xcrun simctl list runtimes; xcrun simctl list devices;
+```
+
+#### Android
+
+```shell
+sdkmanager --list_installed; avdmanager list avd;
+```
+
+#### Expected Output
+
+![Virtual Device Setup](.github/assets/virtual-devices.png)
+
+### Reset Development Setup
+
+For persistent or unexpected issues, run this command to reset your environment and start fresh.
+
+```shell
+bun run build:clean
+```
+
+[View Expected Output](https://app.warp.dev/block/Ulg8jeRvKK9PEqD0tlws7h)
